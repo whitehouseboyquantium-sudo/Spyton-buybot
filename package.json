@@ -1,0 +1,1 @@
+{"name": "ton-buy-bot","version": "1.0.0","description": "A Telegram bot for detecting and notifying real buy transactions on the TON blockchain.","main": "index.js","scripts": {"start": "node index.js"},"dependencies": {"axios": "^1.0.0","dotenv": "^16.0.0","node-telegram-bot-api": "^0.61.0"}}
