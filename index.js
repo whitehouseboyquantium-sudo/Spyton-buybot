@@ -1,33 +1,133 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
+const path = require('path');
+
 const detectStonFiBuys = require('./detectors/stonfi');
 const detectDeDustBuys = require('./detectors/dedust');
 
-// Initialize Telegram Bot
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+// ======================
+// ENV
+// ======================
+const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 
-// Helper function to post buy alerts
-const postBuyAlert = ({ symbol, ton, usd, wallet, txn, position, marketCap, liquidity, rank }) => {
-  const message = `TON TRENDING\n🟢 ${symbol}\n\n${symbol} Buy!\n🟢🟢🟢🟢🟢🟢🟢🟢\n\n💰 ${ton} TON ($${usd})\n👤 ${wallet} | Txn: ${txn}\n⬆ Position: ${position}\n🏆 Market Cap: $${marketCap}\n💧 Liquidity: $${liquidity}\n\n📊 Chart | 🔥 Trending | 🆕 Pools\n🟢 #${rank} On SpyTON Trending`;
-  
-  bot.sendMessage(CHANNEL_ID, message);
-};
+if (!BOT_TOKEN || !CHANNEL_ID) {
+  console.error('❌ Missing BOT_TOKEN or CHANNEL_ID in .env');
+  process.exit(1);
+}
 
-// Command handlers
-bot.onText(/\/addtoken (.+) (.+) (.+)/, (msg, match) => {
+// ======================
+// TELEGRAM BOT
+// ======================
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+
+// ======================
+// STORAGE
+// ======================
+const dataDir = path.join(__dirname, 'data');
+const tokensPath = path.join(dataDir, 'tokens.json');
+
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
+if (!fs.existsSync(tokensPath)) fs.writeFileSync(tokensPath, '{}');
+
+const loadTokens = () =>
+  JSON.parse(fs.readFileSync(tokensPath, 'utf8'));
+
+const saveTokens = (tokens) =>
+  fs.writeFileSync(tokensPath, JSON.stringify(tokens, null, 2));
+
+// ======================
+// BUY MESSAGE
+// ======================
+function postBuyAlert({
+  symbol,
+  ton,
+  usd,
+  wallet,
+  txHash,
+  position,
+  marketCap,
+  liquidity,
+  rank
+}) {
+  const msg =
+`TON TRENDING
+🟢 ${symbol}
+
+${symbol} Buy!
+🟢🟢🟢🟢🟢🟢🟢🟢
+
+💰 ${ton} TON ($${usd})
+👤 ${wallet} | Txn
+⬆ Position: ${position}
+🏆 Market Cap: $${marketCap ?? '—'}
+💧 Liquidity: $${liquidity ?? '—'}
+
+📊 Chart | 🔥 Trending | 🆕 Pools
+🟢 #${rank ?? 1} On SpyTON Trending`;
+
+  bot.sendMessage(CHANNEL_ID, msg, { disable_web_page_preview: true });
+}
+
+// ======================
+// COMMANDS
+// ======================
+bot.onText(/\/addtoken (\S+) (\S+) (\S+)/, (msg, match) => {
   const chatId = msg.chat.id;
-  const [_, symbol, poolAddress, telegramLink] = match;
-  // Handle adding a new token
-  bot.sendMessage(chatId, `Token ${symbol} added successfully!`);
+  const [, symbol, pool, telegram] = match;
+
+  const tokens = loadTokens();
+
+  tokens[symbol] = {
+    symbol,
+    pool,
+    telegram,
+    addedAt: Date.now()
+  };
+
+  saveTokens(tokens);
+
+  bot.sendMessage(
+    chatId,
+    `✅ ${symbol} added\nPool: ${pool}`
+  );
 });
 
 bot.onText(/\/forcetrend (\S+) (\d+) (\d+)/, (msg, match) => {
   const chatId = msg.chat.id;
-  const [_, symbol, rank, time] = match;
-  // Handle force trending logic
-  bot.sendMessage(chatId, `Token ${symbol} set to force trend at rank: #${rank} for ${time} hours.`);
+  const [, symbol, rank, hours] = match;
+
+  const tokens = loadTokens();
+  if (!tokens[symbol]) {
+    bot.sendMessage(chatId, `❌ ${symbol} not found`);
+    return;
+  }
+
+  tokens[symbol].forcedRank = Number(rank);
+  tokens[symbol].forceUntil = Date.now() + Number(hours) * 3600000;
+  saveTokens(tokens);
+
+  bot.sendMessage(
+    chatId,
+    `🔥 ${symbol} forced to #${rank} for ${hours}h`
+  );
 });
 
-// Shared interval for detecting buy events
-total =()=>{   setTimeout(async()=>{ const trigger_all_interval=()=>void detectStonFiBuys(New. PostAdd)}，将addEntry.
+// ======================
+// DETECTORS LOOP
+// ======================
+async function runDetectors() {
+  try {
+    const tokens = loadTokens();
+    await detectStonFiBuys(tokens, postBuyAlert);
+    await detectDeDustBuys(tokens, postBuyAlert);
+  } catch (e) {
+    console.error('Detector error:', e.message);
+  }
+}
+
+setInterval(runDetectors, 10_000);
+
+// ======================
+console.log('✅ SpyTON BuyBot running');
